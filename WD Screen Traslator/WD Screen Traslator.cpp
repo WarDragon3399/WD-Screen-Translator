@@ -82,7 +82,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
             if (!IsWindow(selectedGameHwnd)) {
                 MessageBoxW(hwnd, L"Invalid Window Selected. Please Refresh.", L"Error", MB_OK);
-                break; // Exit case 102
+                break;
             }
 
             int srcIdx = (int)SendMessage(g_hwndSourceLang, CB_GETCURSEL, 0, 0);
@@ -91,19 +91,29 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (srcIdx != CB_ERR && tgtIdx != CB_ERR) {
                 std::wstring srcTag = LanguageModule::GetSteamLanguages()[srcIdx].ocrTag;
                 std::wstring tgtCode = LanguageModule::GetGoogleLanguages()[tgtIdx].code;
-                
+
                 if (LanguageModule::IsLanguagePackInstalled(srcTag)) {
                     ShowWindow(hwnd, SW_HIDE);
-                    BubbleModule::g_sourceCode = LanguageModule::GetSteamLanguages()[srcIdx].ocrTag;
-                    BubbleModule::g_targetCode = LanguageModule::GetGoogleLanguages()[tgtIdx].code;
+
+                    // 1. Pass data to the modules
                     BubbleModule::g_targetGameHwnd = selectedGameHwnd;
+                    BubbleModule::g_sourceCode = srcTag;
+                    BubbleModule::g_targetCode = tgtCode;
+
+                    // 2. CREATE THE OVERLAY WINDOW IMMEDIATELY
+                    OverlayModule::CreateOverlay(GetModuleHandle(NULL), selectedGameHwnd);
+
+                    // 3. Create the Bubble Dock
                     BubbleModule::CreateTranslatorBubble(GetModuleHandle(NULL), hwnd, srcTag, tgtCode);
+
+                    // 4. Force a "Waiting" message so we know it's alive
+                   // OverlayModule::UpdateText(L"Initializing OCR...", { 50, 50, 400, 100 });
                 }
                 else {
                     MessageBoxW(hwnd, L"OCR Pack not found!", L"Error", MB_OK);
                 }
             }
-            break; // <--- CRITICAL: Stops it from going to case 201
+            break;
         }
 
         case 201: { // About
@@ -144,8 +154,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
-    winrt::init_apartment();
+    // 1. Initialize COM/WinRT
+    winrt::init_apartment(winrt::apartment_type::multi_threaded);
 
+    // 2. DPI Awareness
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
+    // 3. Register and Create Main Window
     WNDCLASSEXW wc = { sizeof(WNDCLASSEXW) };
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInst;
@@ -158,13 +173,16 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
         WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT, 500, 350, NULL, NULL, hInst, NULL);
 
+    if (!g_hwndMain) return 0;
+
     ShowWindow(g_hwndMain, nCmdShow);
     UpdateWindow(g_hwndMain);
 
+    // 4. THE CRITICAL MESSAGE LOOP
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
-    return 0;
+    return (int)msg.wParam;
 }

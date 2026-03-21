@@ -3,6 +3,9 @@
 #include <string>
 #include <shellapi.h>
 #include <functional>
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
+#include "Common.h"
 
 // WinRT Headers
 #include <winrt/base.h>
@@ -29,10 +32,7 @@ struct TargetLanguage {
     std::wstring code;
 };
 
-struct TextBlock {
-    std::wstring text;
-    RECT box; // The x, y, width, height on screen
-};
+
 
 namespace LanguageModule {
     inline const std::vector<LanguageOption>& GetSteamLanguages() {
@@ -102,88 +102,92 @@ namespace LanguageModule {
 
     // --- THE CORE OCR LOGIC ---
     inline winrt::fire_and_forget RecognizeText(HWND targetHwnd, std::wstring langTag, std::function<void(std::vector<TextBlock>)> callback) {
+        // Capture the dispatcher context if needed, but for now, we use a simpler safety:
+        auto lifetime = callback;
+
         std::vector<TextBlock> blocks;
-        auto ReportError = [&](std::wstring msg) {
-            TextBlock errBlock;
-            errBlock.text = L"OCR Error: " + msg;
-            errBlock.box = { 10, 10, 500, 50 };
-            blocks.push_back(errBlock);
-            };
-
         try {
-            RECT rc;
-            if (!GetWindowRect(targetHwnd, &rc)) {
-                ReportError(L"Game Window Lost");
-                callback(blocks);
-                co_return;
-            }
+            if (!IsWindow(targetHwnd)) { callback(blocks); co_return; }
 
+            // --- CAPTURE LOGIC (Same as before, ensure it's within the try) ---
+            POINT pt = { 0, 0 };
+            ClientToScreen(targetHwnd, &pt);
+            RECT rc; GetClientRect(targetHwnd, &rc);
             int w = rc.right - rc.left;
             int h = rc.bottom - rc.top;
-            if (w <= 0 || h <= 0) {
-                ReportError(L"Invalid Window Size");
-                callback(blocks);
-                co_return;
-            }
+            if (w <= 0 || h <= 0) { callback(blocks); co_return; }
 
-            HDC hScreen = GetDC(NULL);
-            HDC hDC = CreateCompatibleDC(hScreen);
-            HBITMAP hBitmap = CreateCompatibleBitmap(hScreen, w, h);
-            SelectObject(hDC, hBitmap);
-            BitBlt(hDC, 0, 0, w, h, hScreen, rc.left, rc.top, SRCCOPY);
+            HDC hScreenDC = GetDC(NULL);
+            HDC hMemoryDC = CreateCompatibleDC(hScreenDC);
+            HBITMAP hBitmap = CreateCompatibleBitmap(hScreenDC, w, h);
+            SelectObject(hMemoryDC, hBitmap);
+            BitBlt(hMemoryDC, 0, 0, w, h, hScreenDC, pt.x, pt.y, SRCCOPY);
 
             BITMAPINFOHEADER bi = { sizeof(bi), w, -h, 1, 32, BI_RGB };
             std::vector<uint8_t> pixels(w * h * 4);
-            GetDIBits(hDC, hBitmap, 0, h, pixels.data(), (BITMAPINFO*)&bi, DIB_RGB_COLORS);
+            GetDIBits(hMemoryDC, hBitmap, 0, h, pixels.data(), (BITMAPINFO*)&bi, DIB_RGB_COLORS);
 
             DataWriter writer;
             writer.WriteBytes(pixels);
-            SoftwareBitmap softwareBitmap(BitmapPixelFormat::Bgra8, w, h, BitmapAlphaMode::Premultiplied);
-            softwareBitmap.CopyFromBuffer(writer.DetachBuffer());
+            auto buffer = writer.DetachBuffer();
+            SoftwareBitmap swBmp = SoftwareBitmap::CreateCopyFromBuffer(buffer, BitmapPixelFormat::Bgra8, w, h);
 
             DeleteObject(hBitmap);
-            DeleteDC(hDC);
-            ReleaseDC(NULL, hScreen);
+            DeleteDC(hMemoryDC);
+            ReleaseDC(NULL, hScreenDC);
 
-            auto language = winrt::Windows::Globalization::Language(langTag);
-            auto engine = OcrEngine::TryCreateFromLanguage(language);
-
+            // --- OCR LOGIC ---
+            auto engine = OcrEngine::TryCreateFromLanguage(winrt::Windows::Globalization::Language(langTag));
             if (!engine) {
-                ReportError(L"Language Pack '" + langTag + L"' missing");
+                OutputDebugStringW(L"[WD] OCR Engine creation failed!\n");
                 callback(blocks);
                 co_return;
             }
 
-            auto result = co_await engine.RecognizeAsync(softwareBitmap);
+            // The co_await happens here
+            auto result = co_await engine.RecognizeAsync(swBmp);
 
             if (result) {
                 for (auto const& line : result.Lines()) {
-                    TextBlock block;
-                    block.text = line.Text().c_str();
+                    TextBlock b;
+                    b.text = line.Text().c_str();
 
-                    // Calculate the box for the whole line
-                    float minX = 10000, minY = 10000, maxX = 0, maxY = 0;
-                    POINT topLeft = { (long)minX, (long)minY };
-                    POINT bottomRight = { (long)maxX, (long)maxY };
-                    for (auto const& word : line.Words()) {
-                        auto r = word.BoundingRect();
-                        if (r.X < minX) minX = r.X;
-                        if (r.Y < minY) minY = r.Y;
-                        if (r.X + r.Width > maxX) maxX = r.X + r.Width;
-                        if (r.Y + r.Height > maxY) maxY = r.Y + r.Height;
+                    // Simplified bounding box for stability
+                    auto r = line.Words().GetAt(0).BoundingRect(); // Start with first word
+                    float minX = r.X, minY = r.Y, maxX = r.X + r.Width, maxY = r.Y + r.Height;
+
+                    for (uint32_t i = 1; i < line.Words().Size(); i++) {
+                        auto wr = line.Words().GetAt(i).BoundingRect();
+                        minX = (std::min)(minX, wr.X);
+                        minY = (std::min)(minY, wr.Y);
+                        maxX = (std::max)(maxX, wr.X + wr.Width);
+                        maxY = (std::max)(maxY, wr.Y + wr.Height);
                     }
-                    block.box = { (long)minX, (long)minY, (long)maxX, (long)maxY };
-                    blocks.push_back(block);
+
+                    // 2. STABILIZATION: Snap to 20-pixel grid
+                    // This stops the box from vibrating/shaking
+                    const int snap = 20;
+                    b.box.left = (long)(floor(minX / snap) * snap);
+                    b.box.top = (long)(floor(minY / snap) * snap);
+                    b.box.right = (long)(ceil(maxX / snap) * snap);
+                    b.box.bottom = (long)(ceil(maxY / snap) * snap);
+
+                    // 3. PADDING: Give the text some breathing room
+                    const int padding = 2;
+                    b.box.left -= padding;
+                    b.box.top -= padding;
+                    b.box.right += padding;
+                    b.box.bottom += padding;
+                    blocks.push_back(b);
                 }
             }
+        }
+        catch (...) {
+            OutputDebugStringW(L"[WD] Critical OCR Error in RecognizeText\n");
+        }
 
-            // SUCCESS: Send the blocks to the bubble
-            callback(blocks);
-        }
-        catch (winrt::hresult_error const& ex) {
-            ReportError(ex.message().c_str());
-            callback(blocks);
-        }
+        // Return results to main thread via the callback
+        callback(blocks);
         co_return;
     }
 }
