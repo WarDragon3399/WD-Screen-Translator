@@ -4,6 +4,10 @@
 #include <string>
 #include "Common.h" // Include the shared struct
 
+// Access the globals from Main.cpp
+extern COLORREF g_SelectedFontColor;
+extern COLORREF g_SelectedShadowColor;
+
 namespace OverlayModule {
     inline HWND g_hwndOverlay = NULL;
     inline std::vector<TextBlock> g_currentBlocks;
@@ -18,7 +22,7 @@ namespace OverlayModule {
             HBRUSH hBase = CreateSolidBrush(RGB(1, 1, 1)); // Use 1,1,1 as transparent key
             FillRect(hdc, &ps.rcPaint, hBase);
             DeleteObject(hBase);
-            HFONT hFont = CreateFontW(-20, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, 0, 0, L"Arial");
+            HFONT hFont = CreateFontW(-20, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, 0, 0, L"Segoe UI");
             SelectObject(hdc, hFont);
 
             // 2. Draw blocks
@@ -37,12 +41,21 @@ namespace OverlayModule {
                 DeleteObject(hPen);*/
 
                 // Text
-                SetTextColor(hdc, RGB(0, 0, 0));
+                RECT r = block.box;
+               
                 SetBkMode(hdc, TRANSPARENT);
                 // FIXED: DrawTextW takes 5 arguments
-                RECT r = block.box;
-                RECT shadowRect;
-                DrawTextW(hdc, block.text.c_str(), -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP);
+                // --- 1. DRAW THE SHADOW ---
+                SetTextColor(hdc, g_SelectedShadowColor);
+                RECT shadowRect = r;
+                //OffsetRect(&shadowRect, 2, 2); // 2-pixel offset
+                DrawTextW(hdc, block.text.c_str(), -1, &shadowRect, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOCLIP);
+
+                // --- 2. DRAW THE MAIN TEXT (This was missing!) ---
+                SetTextColor(hdc, g_SelectedFontColor); // <--- THIS LINE FIXES IT
+                DrawTextW(hdc, block.text.c_str(), -1, &r, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOCLIP);
+               
+               
                 shadowRect = r; OffsetRect(&shadowRect, 1, 1);
                 DrawTextW(hdc, block.text.c_str(), -1, &shadowRect, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOCLIP);
 
@@ -54,8 +67,8 @@ namespace OverlayModule {
 
                 shadowRect = r; OffsetRect(&shadowRect, -1, 1);
                 DrawTextW(hdc, block.text.c_str(), -1, &shadowRect, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOCLIP);
-                SetTextColor(hdc, RGB(255, 255, 255));
-                DrawTextW(hdc, block.text.c_str(), -1, &r, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOCLIP);
+               
+              
             }
 
             DeleteObject(hFont);

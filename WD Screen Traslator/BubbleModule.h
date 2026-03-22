@@ -5,6 +5,8 @@
 #include "TranslationModule.h"
 #include <algorithm>
 
+extern int g_OCRRefreshRate; // Link to the variable in Main.cpp
+
 namespace BubbleModule {
     inline HWND g_hwndBubble = NULL;
     inline HWND g_hwndMainRef = NULL;
@@ -40,13 +42,14 @@ namespace BubbleModule {
         switch (msg) {
         case WM_LBUTTONDOWN: {
             int x = LOWORD(lp);
+            
             if (x > 5 && x < 55) { // Play/Pause Button
                 g_isScanning = !g_isScanning;
 
                 if (g_isScanning) {
                     // STARTING
                     g_isScanning = true;
-                    SetTimer(hwnd, 1, 3000, NULL);
+                    SetTimer(hwnd, 1, g_OCRRefreshRate, NULL);
                     if (OverlayModule::g_hwndOverlay) {
                         ShowWindow(OverlayModule::g_hwndOverlay, SW_SHOW);
                     }
@@ -84,7 +87,9 @@ namespace BubbleModule {
         }
 
         case WM_TIMER: {
+           
             if (g_isScanning && g_targetGameHwnd) {
+               
                 // 1. Position the Overlay precisely over the Client (Content) Area
                 if (!IsWindow(g_targetGameHwnd)) {
                     OverlayModule::UpdateText(L"Error: Game Window Lost", { 50, 50, 500, 100 });
