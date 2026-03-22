@@ -140,8 +140,26 @@ namespace BubbleModule {
                             
                         }
                     }
+                    std::vector<TextBlock> translatedBlocks;
                     std::wstring currentMegaString = L"";
-                    for (const auto& b : blocks) currentMegaString += b.text + L"|";
+                    for (auto& b : blocks) {
+                        // FILTER: Ignore very short text (usually noise/icons)
+                        if (b.text.length() < 2) continue;
+
+                        // FILTER: Ignore pure numbers (like HP/MP or Money)
+                        if (std::all_of(b.text.begin(), b.text.end(), iswdigit)) continue;
+
+                        std::wstring translated = TranslationModule::GetTranslatedText(b.text, g_sourceCode, g_targetCode);
+
+                        if (!translated.empty() && translated != b.text) {
+                            b.text = translated;
+                            translatedBlocks.push_back(b);
+                        }
+
+                        if (!translatedBlocks.empty()) {
+                            OverlayModule::UpdateOverlay(translatedBlocks);
+                        }
+                    }
 
                     if (IsTextSimilar(currentMegaString, g_lastMegaString)) return;
                     g_lastMegaString = currentMegaString;

@@ -24,24 +24,38 @@ namespace OverlayModule {
             // 2. Draw blocks
             for (const auto& block : g_currentBlocks) {
                 // Background for text
-                HBRUSH hBg = CreateSolidBrush(RGB(20, 20, 20));
+               /* HBRUSH hBg = CreateSolidBrush(RGB(20, 20, 20));
                 FillRect(hdc, &block.box, hBg);
-                DeleteObject(hBg);
+                DeleteObject(hBg);*/
 
                 // Border
-                HPEN hPen = CreatePen(PS_SOLID, 2, RGB(0, 255, 0));
+               /* HPEN hPen = CreatePen(PS_SOLID, 2, RGB(0, 255, 0));
                 SelectObject(hdc, hPen);
                 SelectObject(hdc, GetStockObject(NULL_BRUSH));
                 // FIXED: Rectangle takes 5 arguments
                 Rectangle(hdc, block.box.left, block.box.top, block.box.right, block.box.bottom);
-                DeleteObject(hPen);
+                DeleteObject(hPen);*/
 
                 // Text
-                SetTextColor(hdc, RGB(255, 255, 255));
+                SetTextColor(hdc, RGB(0, 0, 0));
                 SetBkMode(hdc, TRANSPARENT);
                 // FIXED: DrawTextW takes 5 arguments
                 RECT r = block.box;
+                RECT shadowRect;
                 DrawTextW(hdc, block.text.c_str(), -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP);
+                shadowRect = r; OffsetRect(&shadowRect, 1, 1);
+                DrawTextW(hdc, block.text.c_str(), -1, &shadowRect, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOCLIP);
+
+                shadowRect = r; OffsetRect(&shadowRect, -1, -1);
+                DrawTextW(hdc, block.text.c_str(), -1, &shadowRect, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOCLIP);
+
+                shadowRect = r; OffsetRect(&shadowRect, 1, -1);
+                DrawTextW(hdc, block.text.c_str(), -1, &shadowRect, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOCLIP);
+
+                shadowRect = r; OffsetRect(&shadowRect, -1, 1);
+                DrawTextW(hdc, block.text.c_str(), -1, &shadowRect, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOCLIP);
+                SetTextColor(hdc, RGB(255, 255, 255));
+                DrawTextW(hdc, block.text.c_str(), -1, &r, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOCLIP);
             }
 
             DeleteObject(hFont);
@@ -68,8 +82,13 @@ namespace OverlayModule {
         POINT pt = { 0, 0 };
         ClientToScreen(gameHwnd, &pt);
 
-        RECT rc;
+        RECT rc,cc;
         GetWindowRect(gameHwnd, &rc);
+        GetClientRect(gameHwnd, &cc);
+
+        // Calculate the thickness of the title bar and borders
+        int border_thick = ((rc.right - rc.left) - cc.right) / 2;
+        int title_height = ((rc.bottom - rc.top) - cc.bottom) - border_thick;
 
         g_hwndOverlay = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
@@ -103,7 +122,7 @@ namespace OverlayModule {
                     int dist = abs(newCX - oldCX) + abs(newCY - oldCY);
 
                     // If movement is tiny (less than 20 pixels), snap to the old position
-                    if (dist < 20) {
+                    if (dist < 15) {
                         newB.box = oldB.box;
                         break;
                     }

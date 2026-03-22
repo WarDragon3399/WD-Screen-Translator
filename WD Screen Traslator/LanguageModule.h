@@ -110,17 +110,25 @@ namespace LanguageModule {
             if (!IsWindow(targetHwnd)) { callback(blocks); co_return; }
 
             // --- CAPTURE LOGIC (Same as before, ensure it's within the try) ---
-            POINT pt = { 0, 0 };
-            ClientToScreen(targetHwnd, &pt);
-            RECT rc; GetClientRect(targetHwnd, &rc);
-            int w = rc.right - rc.left;
-            int h = rc.bottom - rc.top;
+            
+            // 1. Get Title Bar Height
+            RECT rc, cc; 
+			GetWindowRect(targetHwnd, &rc);
+            GetClientRect(targetHwnd, &cc);
+            int titleBarHeight = (rc.bottom - rc.top) - cc.bottom - GetSystemMetrics(SM_CYSIZEFRAME);
+            
+
+            int w = rc.right;
+            int h = rc.bottom;
             if (w <= 0 || h <= 0) { callback(blocks); co_return; }
 
             HDC hScreenDC = GetDC(NULL);
             HDC hMemoryDC = CreateCompatibleDC(hScreenDC);
             HBITMAP hBitmap = CreateCompatibleBitmap(hScreenDC, w, h);
             SelectObject(hMemoryDC, hBitmap);
+            // 2. Adjust the BitBlt capture to ONLY get the game area
+            POINT pt = { 0, 0 };
+            ClientToScreen(targetHwnd, &pt);
             BitBlt(hMemoryDC, 0, 0, w, h, hScreenDC, pt.x, pt.y, SRCCOPY);
 
             BITMAPINFOHEADER bi = { sizeof(bi), w, -h, 1, 32, BI_RGB };
@@ -166,7 +174,7 @@ namespace LanguageModule {
 
                     // 2. STABILIZATION: Snap to 20-pixel grid
                     // This stops the box from vibrating/shaking
-                    const int snap = 20;
+                    const int snap = 8;
                     b.box.left = (long)(floor(minX / snap) * snap);
                     b.box.top = (long)(floor(minY / snap) * snap);
                     b.box.right = (long)(ceil(maxX / snap) * snap);

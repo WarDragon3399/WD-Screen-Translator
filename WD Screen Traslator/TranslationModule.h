@@ -65,23 +65,27 @@ namespace TranslationModule {
         size_t pos = 0;
         while ((pos = rawResponse.find("[\"", pos)) != std::string::npos) {
             size_t startQuote = pos + 2;
-            size_t endQuote = rawResponse.find("\",\"", startQuote);
+            size_t endQuote = rawResponse.find("\"", startQuote);
             if (endQuote != std::string::npos) {
                 std::string part = rawResponse.substr(startQuote, endQuote - startQuote);
 
-                // Convert segment UTF-8 to Wide
-                int wLen = MultiByteToWideChar(CP_UTF8, 0, part.c_str(), (int)part.length(), NULL, 0);
-                std::wstring wPart(wLen, 0);
-                MultiByteToWideChar(CP_UTF8, 0, part.c_str(), (int)part.length(), &wPart[0], wLen);
+                // Skip technical Google fields (like language codes or original text)
+                if (part.length() > 0 && part != "en" && part != "ja" && part != "auto") {
+                    int wLen = MultiByteToWideChar(CP_UTF8, 0, part.c_str(), (int)part.length(), NULL, 0);
+                    std::wstring wPart(wLen, 0);
+                    MultiByteToWideChar(CP_UTF8, 0, part.c_str(), (int)part.length(), &wPart[0], wLen);
 
-                finalWResult += wPart;
-                pos = endQuote + 3;
+                    // Only add if it's not the original text (Google often includes original at the end)
+                    if (finalWResult.find(wPart) == std::wstring::npos) {
+                        finalWResult += wPart;
+                    }
+                }
+                pos = endQuote + 1;
             }
             else break;
 
-            // Google puts the full translation in the first few nested arrays. 
-            // If we hit the original text or metadata, we stop.
-            if (rawResponse.find(",[[", pos) != std::string::npos) break;
+            // Most Google Translate responses put the full translation in the first valid array
+            if (finalWResult.length() > 0) break;
         }
 
         return finalWResult.empty() ? L"[Parsing Error]" : finalWResult;
