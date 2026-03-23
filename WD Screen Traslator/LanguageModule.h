@@ -111,22 +111,24 @@ namespace LanguageModule {
 
             // --- CAPTURE LOGIC (Same as before, ensure it's within the try) ---
             
-            // 1. Get Title Bar Height
-            RECT rc, cc; 
-			GetWindowRect(targetHwnd, &rc);
-            GetClientRect(targetHwnd, &cc);
-            int titleBarHeight = (rc.bottom - rc.top) - cc.bottom - GetSystemMetrics(SM_CYSIZEFRAME);
-            
+            // Get Title Bar Height
+            RECT clientRect = {};
+            if (!GetClientRect(targetHwnd, &clientRect)) { callback(blocks); co_return; }
 
-            int w = rc.right;
-            int h = rc.bottom;
+
+            const int w = clientRect.right - clientRect.left;
+            const int h = clientRect.bottom - clientRect.top;
             if (w <= 0 || h <= 0) { callback(blocks); co_return; }
+
+            
 
             HDC hScreenDC = GetDC(NULL);
             HDC hMemoryDC = CreateCompatibleDC(hScreenDC);
             HBITMAP hBitmap = CreateCompatibleBitmap(hScreenDC, w, h);
             SelectObject(hMemoryDC, hBitmap);
-            // 2. Adjust the BitBlt capture to ONLY get the game area
+
+            // Capture ONLY the client area
+            // Top-left of the client area in screen coordinates
             POINT pt = { 0, 0 };
             ClientToScreen(targetHwnd, &pt);
             BitBlt(hMemoryDC, 0, 0, w, h, hScreenDC, pt.x, pt.y, SRCCOPY);

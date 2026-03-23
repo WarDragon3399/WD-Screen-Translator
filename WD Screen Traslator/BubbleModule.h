@@ -192,7 +192,7 @@ namespace BubbleModule {
                     if (blocks.empty()) {
                         if (g_lastMegaString != L"") {
                             g_lastMegaString = L"";
-                            OverlayModule::UpdateText(L"Looking for text...", { 0, 0, 0, 0 });
+                            OverlayModule::ClearOverlay();
                         }
                         return;
                     }
@@ -201,55 +201,51 @@ namespace BubbleModule {
                         // If no text was found, we still show the overlay (it might be empty/clear)
                         if (OverlayModule::g_hwndOverlay) {
                             ShowWindow(OverlayModule::g_hwndOverlay, SW_SHOWNOACTIVATE);
-
                         }
+    
                     }
                     std::vector<TextBlock> translatedBlocks;
                     std::wstring currentMegaString = L"";
-                    for (auto& b : blocks) {
-                        // FILTER: Ignore very short text (usually noise/icons)
-                        if (b.text.length() < 2) continue;
+                    for (auto& sourceBlock : blocks) {
+                        // FILTER: Ignore tiny OCR noise.
+                        if (sourceBlock.text.length() < 2) continue;
 
-                        // FILTER: Ignore pure numbers (like HP/MP or Money)
-                        if (std::all_of(b.text.begin(), b.text.end(), iswdigit)) continue;
+                        // FILTER: Ignore pure numbers (like HP/MP or money values).
+                        if (std::all_of(sourceBlock.text.begin(), sourceBlock.text.end(), iswdigit)) continue;
 
-                        std::wstring translated = TranslationModule::GetTranslatedText(b.text, g_sourceCode, g_targetCode);
+                        currentMegaString += sourceBlock.text;
+                        currentMegaString += L"\n";
+                    }
 
-                        if (!translated.empty() && translated != b.text) {
-                            b.text = translated;
-                            translatedBlocks.push_back(b);
+                    if (currentMegaString.empty()) {
+                        if (g_lastMegaString != L"") {
+                            g_lastMegaString = L"";
+                            OverlayModule::ClearOverlay();
                         }
-
-                        if (!translatedBlocks.empty()) {
-                            OverlayModule::UpdateOverlay(translatedBlocks);
-                        }
+                        return;
                     }
 
                     if (IsTextSimilar(currentMegaString, g_lastMegaString)) return;
                     g_lastMegaString = currentMegaString;
 
-                    // One Batch Translation
-                    std::wstring input = L"";
-                    for (size_t i = 0; i < blocks.size(); i++)
-                        input += blocks[i].text + (i == blocks.size() - 1 ? L"" : L" || ");
+                    for (auto b : blocks) {
+                        if (b.text.length() < 2) continue;
+                        if (std::all_of(b.text.begin(), b.text.end(), iswdigit)) continue;
 
-                    std::wstring translated = TranslationModule::GetTranslatedText(input, g_sourceCode, g_targetCode);
+                        std::wstring translated = TranslationModule::GetTranslatedText(b.text, g_sourceCode, g_targetCode);
+                        if (translated.empty() || translated == b.text) continue;
 
-                    // Split results back correctly
-                    std::wstringstream ss(translated);
-                    std::wstring segment;
-                    size_t idx = 0;
-                    while (std::getline(ss, segment, L'|') && idx < blocks.size()) {
-                        // Remove the pipe or separators Google might have left
-                        segment.erase(std::remove(segment.begin(), segment.end(), L'|'), segment.end());
-                        if (!segment.empty() && segment[0] == L' ') segment.erase(0, 1);
-
-                        blocks[idx].text = segment;
-                        idx++;
+                        b.text = translated;
+                        translatedBlocks.push_back(b);
                     }
 
-                    OverlayModule::UpdateOverlay(blocks);
-                    });
+                    if (translatedBlocks.empty()) {
+                        OverlayModule::ClearOverlay();
+                        return;
+                    }
+
+                    OverlayModule::UpdateOverlay(translatedBlocks);
+                });
             }
 
             if (!g_isScanning) {

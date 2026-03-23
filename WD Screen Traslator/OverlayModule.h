@@ -44,19 +44,12 @@ namespace OverlayModule {
                 RECT r = block.box;
                
                 SetBkMode(hdc, TRANSPARENT);
-                // FIXED: DrawTextW takes 5 arguments
-                // --- 1. DRAW THE SHADOW ---
-                SetTextColor(hdc, g_SelectedShadowColor);
-                RECT shadowRect = r;
-                //OffsetRect(&shadowRect, 2, 2); // 2-pixel offset
-                DrawTextW(hdc, block.text.c_str(), -1, &shadowRect, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOCLIP);
 
-                // --- 2. DRAW THE MAIN TEXT (This was missing!) ---
-                SetTextColor(hdc, g_SelectedFontColor); // <--- THIS LINE FIXES IT
-                DrawTextW(hdc, block.text.c_str(), -1, &r, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOCLIP);
-               
-               
-                shadowRect = r; OffsetRect(&shadowRect, 1, 1);
+                // Draw the shadow/outline first so we do not leave a ghosted duplicate
+                // on top of the translated text.
+                SetTextColor(hdc, g_SelectedShadowColor);
+
+                RECT shadowRect = r; OffsetRect(&shadowRect, 1, 1);
                 DrawTextW(hdc, block.text.c_str(), -1, &shadowRect, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOCLIP);
 
                 shadowRect = r; OffsetRect(&shadowRect, -1, -1);
@@ -67,6 +60,10 @@ namespace OverlayModule {
 
                 shadowRect = r; OffsetRect(&shadowRect, -1, 1);
                 DrawTextW(hdc, block.text.c_str(), -1, &shadowRect, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOCLIP);
+
+                // Main translated text goes last so it stays crisp.
+                SetTextColor(hdc, g_SelectedFontColor);
+                DrawTextW(hdc, block.text.c_str(), -1, &r, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOCLIP);
                
               
             }
@@ -95,18 +92,15 @@ namespace OverlayModule {
         POINT pt = { 0, 0 };
         ClientToScreen(gameHwnd, &pt);
 
-        RECT rc,cc;
-        GetWindowRect(gameHwnd, &rc);
-        GetClientRect(gameHwnd, &cc);
-
-        // Calculate the thickness of the title bar and borders
-        int border_thick = ((rc.right - rc.left) - cc.right) / 2;
-        int title_height = ((rc.bottom - rc.top) - cc.bottom) - border_thick;
+        RECT clientRect = {};
+        GetClientRect(gameHwnd, &clientRect);
+        const int width = clientRect.right - clientRect.left;
+        const int height = clientRect.bottom - clientRect.top;
 
         g_hwndOverlay = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
             L"WDOverlayClass", NULL, WS_POPUP,
-            pt.x, pt.y, rc.right, rc.bottom, 
+            pt.x, pt.y, width, height,
             NULL, NULL, hInst, NULL
         );
 
@@ -150,12 +144,29 @@ namespace OverlayModule {
         }
     }
 
+    inline void ClearOverlay() {
+        g_currentBlocks.clear();
+        if (g_hwndOverlay) {
+            InvalidateRect(g_hwndOverlay, NULL, TRUE);
+            UpdateWindow(g_hwndOverlay);
+        }
+    }
+
     inline void UpdateText(std::wstring manualText, RECT area) {
+        if (manualText.empty() || area.right <= area.left || area.bottom <= area.top) {
+            ClearOverlay();
+            return;
+        }
+
         TextBlock b;
         b.text = manualText;
         b.box = area;
         g_currentBlocks.clear();
         g_currentBlocks.push_back(b);
-        if (g_hwndOverlay) InvalidateRect(g_hwndOverlay, NULL, TRUE);
+
+        if (g_hwndOverlay) {
+            InvalidateRect(g_hwndOverlay, NULL, TRUE);
+            UpdateWindow(g_hwndOverlay);
+        }
     }
 }
