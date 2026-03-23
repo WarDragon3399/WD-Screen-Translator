@@ -40,7 +40,7 @@ namespace BubbleModule {
         return (similarity > 0.90f); // 90% match threshold
     }
 
-    const int B_WIDTH = 300;
+    const int B_WIDTH = 270;
     const int B_HEIGHT = 50;
 
     inline void MirrorRateTextToMainWindow() {
@@ -116,14 +116,14 @@ namespace BubbleModule {
                 InvalidateRect(hwnd, NULL, TRUE);
                 return 0;
             }
-            else if (x > 205 && x < 240) {
+            else if (x > 178 && x < 212) {
                 KillTimer(hwnd, 1);
                 if (OverlayModule::g_hwndOverlay) ShowWindow(OverlayModule::g_hwndOverlay, SW_HIDE);
                 ShowWindow(g_hwndMainRef, SW_SHOW);
                 DestroyWindow(hwnd);
                 return 0;
             }
-            else if (x > 250 && x < 290) {
+            else if (x > 228 && x < 265) {
                 PostQuitMessage(0);
                 return 0;
             }
@@ -274,8 +274,8 @@ namespace BubbleModule {
             SelectObject(hdc, hFont);
 
             TextOutW(hdc, 14, 12, g_isScanning ? L"II" : L"▶", (g_isScanning ? 2 : 1));
-            TextOutW(hdc, 212, 12, L"🏠", 2);
-            TextOutW(hdc, 262, 12, L"✕", 1);
+            TextOutW(hdc, 185, 12, L"🏠", 2);
+            TextOutW(hdc, 235, 12, L"✕", 1);
 
             DeleteObject(bgBrush);
             DeleteObject(borderPen);
@@ -339,7 +339,7 @@ namespace BubbleModule {
             L"STATIC",
             L"Rate",
             WS_CHILD | WS_VISIBLE,
-            38, 14, 34, 20,
+            38, 13, 42, 22,
             g_hwndBubble,
             NULL,
             hInst,
@@ -362,7 +362,7 @@ namespace BubbleModule {
             L"STATIC",
             L"ms",
             WS_CHILD | WS_VISIBLE,
-            143, 14, 22, 20,
+            144, 13, 28, 22,
             g_hwndBubble,
             NULL,
             hInst,
