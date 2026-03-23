@@ -16,7 +16,6 @@ namespace BubbleModule {
     inline bool g_isScanning = false;
     inline std::wstring g_lastMegaString = L"";
 
-
     inline bool IsTextSimilar(const std::wstring& s1, const std::wstring& s2) {
         if (s1 == s2) return true;
         if (s1.length() != s2.length()) return false;
@@ -50,6 +49,7 @@ namespace BubbleModule {
                     // STARTING
                     g_isScanning = true;
                     SetTimer(hwnd, 1, g_OCRRefreshRate, NULL);
+                    PostMessage(hwnd, WM_TIMER, 1, 0);
                     if (OverlayModule::g_hwndOverlay) {
                         ShowWindow(OverlayModule::g_hwndOverlay, SW_SHOW);
                     }
