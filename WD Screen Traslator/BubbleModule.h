@@ -6,15 +6,19 @@
 #include <algorithm>
 
 extern int g_OCRRefreshRate; // Link to the variable in Main.cpp
+extern HWND g_hwndRefreshRate;
 
 namespace BubbleModule {
     inline HWND g_hwndBubble = NULL;
     inline HWND g_hwndMainRef = NULL;
     inline HWND g_targetGameHwnd = NULL;
+    inline HWND g_hwndRateLabel = NULL;
+    inline HWND g_hwndRateEdit = NULL;
     inline std::wstring g_sourceCode;
     inline std::wstring g_targetCode;
     inline bool g_isScanning = false;
     inline std::wstring g_lastMegaString = L"";
+
 
     inline bool IsTextSimilar(const std::wstring& s1, const std::wstring& s2) {
         if (s1 == s2) return true;
@@ -34,18 +38,45 @@ namespace BubbleModule {
         return (similarity > 0.90f); // 90% match threshold
     }
 
-    const int B_WIDTH = 160;
+    const int B_WIDTH = 360;
     const int B_HEIGHT = 50;
+
+    inline void SyncOCRRateFromValue(int newRate, HWND bubbleHwnd = NULL) {
+        if (newRate < 500) newRate = 500;
+        g_OCRRefreshRate = newRate;
+
+        wchar_t rateBuf[16];
+        wsprintfW(rateBuf, L"%d", g_OCRRefreshRate);
+
+        if (g_hwndRateEdit && IsWindow(g_hwndRateEdit)) {
+            SetWindowTextW(g_hwndRateEdit, rateBuf);
+        }
+
+        if (g_hwndRefreshRate && IsWindow(g_hwndRefreshRate)) {
+            SetWindowTextW(g_hwndRefreshRate, rateBuf);
+        }
+
+        if (bubbleHwnd && g_isScanning) {
+            KillTimer(bubbleHwnd, 1);
+            SetTimer(bubbleHwnd, 1, g_OCRRefreshRate, NULL);
+        }
+    }
 
     LRESULT CALLBACK BubbleProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         switch (msg) {
         case WM_LBUTTONDOWN: {
             int x = LOWORD(lp);
-            
-            if (x > 5 && x < 55) { // Play/Pause Button
+
+            if (x > 5 && x < 45) { // Play/Pause Button
                 g_isScanning = !g_isScanning;
 
                 if (g_isScanning) {
+                    // Read current OCR rate from floating input before starting
+                    wchar_t rateBuf[16] = {};
+                    GetWindowTextW(g_hwndRateEdit, rateBuf, 16);
+
+                    int newRate = _wtoi(rateBuf);
+                    SyncOCRRateFromValue(newRate);
                     // STARTING
                     g_isScanning = true;
                     SetTimer(hwnd, 1, g_OCRRefreshRate, NULL);
@@ -69,14 +100,14 @@ namespace BubbleModule {
                 InvalidateRect(hwnd, NULL, TRUE);
                 return 0;
             }
-            else if (x > 60 && x < 105) {
+            else if (x > 245 && x < 290) {
                 KillTimer(hwnd, 1);
                 if (OverlayModule::g_hwndOverlay) ShowWindow(OverlayModule::g_hwndOverlay, SW_HIDE);
                 ShowWindow(g_hwndMainRef, SW_SHOW);
                 DestroyWindow(hwnd);
                 return 0;
             }
-            else if (x > 110 && x < 155) {
+            else if (x > 300 && x < 345) {
                 PostQuitMessage(0);
                 return 0;
             }
@@ -85,11 +116,26 @@ namespace BubbleModule {
                 return 0;
             }
         }
+        
+        case WM_COMMAND: {
+            if (LOWORD(wp) == 2001 && HIWORD(wp) == EN_CHANGE) {
+                wchar_t rateBuf[16] = {};
+                GetWindowTextW(g_hwndRateEdit, rateBuf, 16);
+
+                // Ignore blank/half-typed value until user has at least one digit
+                if (rateBuf[0] != L'\0') {
+                    int newRate = _wtoi(rateBuf);
+                    SyncOCRRateFromValue(newRate, hwnd);
+                }
+                return 0;
+            }
+            break;
+        }
 
         case WM_TIMER: {
-           
+
             if (g_isScanning && g_targetGameHwnd) {
-               
+
                 // 1. Position the Overlay precisely over the Client (Content) Area
                 if (!IsWindow(g_targetGameHwnd)) {
                     OverlayModule::UpdateText(L"Error: Game Window Lost", { 50, 50, 500, 100 });
@@ -138,11 +184,11 @@ namespace BubbleModule {
                         return;
                     }
                     else {
-                       
+
                         // If no text was found, we still show the overlay (it might be empty/clear)
                         if (OverlayModule::g_hwndOverlay) {
                             ShowWindow(OverlayModule::g_hwndOverlay, SW_SHOWNOACTIVATE);
-                            
+
                         }
                     }
                     std::vector<TextBlock> translatedBlocks;
@@ -190,7 +236,7 @@ namespace BubbleModule {
                     }
 
                     OverlayModule::UpdateOverlay(blocks);
-                });
+                    });
             }
 
             if (!g_isScanning) {
@@ -214,9 +260,9 @@ namespace BubbleModule {
             HFONT hFont = CreateFontW(22, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Symbol");
             SelectObject(hdc, hFont);
 
-            TextOutW(hdc, 22, 12, g_isScanning ? L"II" : L"▶", (g_isScanning ? 2 : 1));
-            TextOutW(hdc, 72, 12, L"🏠", 2);
-            TextOutW(hdc, 125, 12, L"✕", 1);
+            TextOutW(hdc, 15, 12, g_isScanning ? L"II" : L"▶", (g_isScanning ? 2 : 1));
+            TextOutW(hdc, 255, 12, L"🏠", 2);
+            TextOutW(hdc, 315, 12, L"✕", 1);
 
             DeleteObject(bgBrush);
             DeleteObject(borderPen);
@@ -258,8 +304,34 @@ namespace BubbleModule {
             L"WDBubbleDock", L"WD_Dock", WS_POPUP | WS_VISIBLE,
             100, 100, B_WIDTH, B_HEIGHT, NULL, NULL, hInst, NULL);
 
+        wchar_t rateBuf[16];
+        wsprintfW(rateBuf, L"%d", g_OCRRefreshRate);
+
+        g_hwndRateLabel = CreateWindowW(
+            L"STATIC",
+            L"Rate:",
+            WS_CHILD | WS_VISIBLE,
+            52, 14, 40, 20,
+            g_hwndBubble,
+            NULL,
+            hInst,
+            NULL
+        );
+
+        g_hwndRateEdit = CreateWindowExW(
+            WS_EX_CLIENTEDGE,
+            L"EDIT",
+            rateBuf,
+            WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_CENTER,
+            95, 10, 90, 28,
+            g_hwndBubble,
+            (HMENU)2001,
+            hInst,
+            NULL
+        );
+
         SetLayeredWindowAttributes(g_hwndBubble, 0, 220, LWA_ALPHA);
     }
 
-    
+
 }
