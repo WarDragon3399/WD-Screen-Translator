@@ -7,6 +7,7 @@
 
 extern int g_OCRRefreshRate; // Link to the variable in Main.cpp
 extern HWND g_hwndRefreshRate;
+inline HBRUSH g_hBubbleBrush = CreateSolidBrush(RGB(38, 38, 38));
 
 namespace BubbleModule {
     inline HWND g_hwndBubble = NULL;
@@ -14,6 +15,7 @@ namespace BubbleModule {
     inline HWND g_targetGameHwnd = NULL;
     inline HWND g_hwndRateLabel = NULL;
     inline HWND g_hwndRateEdit = NULL;
+    inline bool g_isUpdatingRateUI = false;
     inline std::wstring g_sourceCode;
     inline std::wstring g_targetCode;
     inline bool g_isScanning = false;
@@ -38,28 +40,47 @@ namespace BubbleModule {
         return (similarity > 0.90f); // 90% match threshold
     }
 
-    const int B_WIDTH = 360;
+    const int B_WIDTH = 300;
     const int B_HEIGHT = 50;
 
-    inline void SyncOCRRateFromValue(int newRate, HWND bubbleHwnd = NULL) {
+    inline void MirrorRateTextToMainWindow() {
+        if (g_isUpdatingRateUI) return;
+        if (!g_hwndRateEdit || !IsWindow(g_hwndRateEdit)) return;
+        if (!g_hwndRefreshRate || !IsWindow(g_hwndRefreshRate)) return;
+
+        wchar_t rateBuf[16] = {};
+        GetWindowTextW(g_hwndRateEdit, rateBuf, 16);
+
+        g_isUpdatingRateUI = true;
+        SetWindowTextW(g_hwndRefreshRate, rateBuf);
+        g_isUpdatingRateUI = false;
+    }
+
+    inline void ApplyRateFromFloatingInput() {
+        if (!g_hwndRateEdit || !IsWindow(g_hwndRateEdit)) return;
+
+        wchar_t rateBuf[16] = {};
+        GetWindowTextW(g_hwndRateEdit, rateBuf, 16);
+
+        int newRate = _wtoi(rateBuf);
         if (newRate < 500) newRate = 500;
+
         g_OCRRefreshRate = newRate;
 
-        wchar_t rateBuf[16];
-        wsprintfW(rateBuf, L"%d", g_OCRRefreshRate);
+        wchar_t finalBuf[16];
+        wsprintfW(finalBuf, L"%d", g_OCRRefreshRate);
 
-        if (g_hwndRateEdit && IsWindow(g_hwndRateEdit)) {
-            SetWindowTextW(g_hwndRateEdit, rateBuf);
-        }
+        g_isUpdatingRateUI = true;
 
+        // Normalize bubble field (example: user typed 300 -> becomes 500)
+        SetWindowTextW(g_hwndRateEdit, finalBuf);
+
+        // Keep main window field synced too
         if (g_hwndRefreshRate && IsWindow(g_hwndRefreshRate)) {
-            SetWindowTextW(g_hwndRefreshRate, rateBuf);
+            SetWindowTextW(g_hwndRefreshRate, finalBuf);
         }
 
-        if (bubbleHwnd && g_isScanning) {
-            KillTimer(bubbleHwnd, 1);
-            SetTimer(bubbleHwnd, 1, g_OCRRefreshRate, NULL);
-        }
+        g_isUpdatingRateUI = false;
     }
 
     LRESULT CALLBACK BubbleProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -67,20 +88,15 @@ namespace BubbleModule {
         case WM_LBUTTONDOWN: {
             int x = LOWORD(lp);
 
-            if (x > 5 && x < 45) { // Play/Pause Button
+            if (x > 5 && x < 38) { // Play/Pause Button
                 g_isScanning = !g_isScanning;
 
                 if (g_isScanning) {
-                    // Read current OCR rate from floating input before starting
-                    wchar_t rateBuf[16] = {};
-                    GetWindowTextW(g_hwndRateEdit, rateBuf, 16);
-
-                    int newRate = _wtoi(rateBuf);
-                    SyncOCRRateFromValue(newRate);
                     // STARTING
-                    g_isScanning = true;
+                    ApplyRateFromFloatingInput(); // Apply/clamp OCR rate only when Play is pressed
                     SetTimer(hwnd, 1, g_OCRRefreshRate, NULL);
                     PostMessage(hwnd, WM_TIMER, 1, 0);
+
                     if (OverlayModule::g_hwndOverlay) {
                         ShowWindow(OverlayModule::g_hwndOverlay, SW_SHOW);
                     }
@@ -100,14 +116,14 @@ namespace BubbleModule {
                 InvalidateRect(hwnd, NULL, TRUE);
                 return 0;
             }
-            else if (x > 245 && x < 290) {
+            else if (x > 205 && x < 240) {
                 KillTimer(hwnd, 1);
                 if (OverlayModule::g_hwndOverlay) ShowWindow(OverlayModule::g_hwndOverlay, SW_HIDE);
                 ShowWindow(g_hwndMainRef, SW_SHOW);
                 DestroyWindow(hwnd);
                 return 0;
             }
-            else if (x > 300 && x < 345) {
+            else if (x > 250 && x < 290) {
                 PostQuitMessage(0);
                 return 0;
             }
@@ -119,14 +135,11 @@ namespace BubbleModule {
         
         case WM_COMMAND: {
             if (LOWORD(wp) == 2001 && HIWORD(wp) == EN_CHANGE) {
-                wchar_t rateBuf[16] = {};
-                GetWindowTextW(g_hwndRateEdit, rateBuf, 16);
+                if (g_isUpdatingRateUI) return 0;
 
-                // Ignore blank/half-typed value until user has at least one digit
-                if (rateBuf[0] != L'\0') {
-                    int newRate = _wtoi(rateBuf);
-                    SyncOCRRateFromValue(newRate, hwnd);
-                }
+                // Only mirror text to main window while typing.
+                // DO NOT apply OCR timer changes here.
+                MirrorRateTextToMainWindow();
                 return 0;
             }
             break;
@@ -260,15 +273,30 @@ namespace BubbleModule {
             HFONT hFont = CreateFontW(22, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Symbol");
             SelectObject(hdc, hFont);
 
-            TextOutW(hdc, 15, 12, g_isScanning ? L"II" : L"▶", (g_isScanning ? 2 : 1));
-            TextOutW(hdc, 255, 12, L"🏠", 2);
-            TextOutW(hdc, 315, 12, L"✕", 1);
+            TextOutW(hdc, 14, 12, g_isScanning ? L"II" : L"▶", (g_isScanning ? 2 : 1));
+            TextOutW(hdc, 212, 12, L"🏠", 2);
+            TextOutW(hdc, 262, 12, L"✕", 1);
 
             DeleteObject(bgBrush);
             DeleteObject(borderPen);
             DeleteObject(hFont);
             EndPaint(hwnd, &ps);
             return 0;
+        }
+        
+        case WM_CTLCOLORSTATIC: {
+            HDC hdc = (HDC)wp;
+            SetTextColor(hdc, RGB(235, 235, 235));
+            SetBkColor(hdc, RGB(38, 38, 38));
+            SetBkMode(hdc, TRANSPARENT);
+            return (LRESULT)g_hBubbleBrush;
+        }
+
+        case WM_CTLCOLOREDIT: {
+            HDC hdc = (HDC)wp;
+            SetTextColor(hdc, RGB(255, 255, 255));
+            SetBkColor(hdc, RGB(52, 52, 52));
+            return (LRESULT)g_hBubbleBrush;
         }
 
         case WM_DESTROY: {
@@ -309,9 +337,9 @@ namespace BubbleModule {
 
         g_hwndRateLabel = CreateWindowW(
             L"STATIC",
-            L"Rate:",
+            L"Rate",
             WS_CHILD | WS_VISIBLE,
-            52, 14, 40, 20,
+            38, 14, 34, 20,
             g_hwndBubble,
             NULL,
             hInst,
@@ -319,13 +347,24 @@ namespace BubbleModule {
         );
 
         g_hwndRateEdit = CreateWindowExW(
-            WS_EX_CLIENTEDGE,
+            0,
             L"EDIT",
             rateBuf,
-            WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_CENTER,
-            95, 10, 90, 28,
+            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_NUMBER | ES_CENTER,
+            80, 10, 62, 28,
             g_hwndBubble,
             (HMENU)2001,
+            hInst,
+            NULL
+        );
+
+        HWND hwndRateMs = CreateWindowW(
+            L"STATIC",
+            L"ms",
+            WS_CHILD | WS_VISIBLE,
+            143, 14, 22, 20,
+            g_hwndBubble,
+            NULL,
             hInst,
             NULL
         );
